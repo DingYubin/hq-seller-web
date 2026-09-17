@@ -27,8 +27,6 @@ function makeOffer(item) {
     availableQuantity: String(item.quantity ?? ''),
     leadTimeDays: '',
     note: '',
-    version: null,
-    editable: true,
     isNew: true,
   }
 }
@@ -54,30 +52,13 @@ function buildModel(data) {
         availableQuantity: isEmpty(offer.availableQuantity) ? '' : String(offer.availableQuantity),
         leadTimeDays: isEmpty(offer.leadTimeDays) ? '' : String(offer.leadTimeDays),
         note: '',
-        version: offer.version ?? null,
-        editable: offer.editable !== false,
         isNew: false,
-        original: {
-          supplierName: offer.supplierName ?? '',
-          unitPrice: String(offer.unitPrice ?? ''),
-          availableQuantity: isEmpty(offer.availableQuantity) ? '' : String(offer.availableQuantity),
-          leadTimeDays: isEmpty(offer.leadTimeDays) ? '' : String(offer.leadTimeDays),
-        },
       })),
     })),
   }))
 }
 
-function isDirty(offer) {
-  if (offer.isNew || !offer.original) return false
-  return (
-    offer.unitPrice !== offer.original.unitPrice ||
-    offer.availableQuantity !== offer.original.availableQuantity ||
-    offer.leadTimeDays !== offer.original.leadTimeDays
-  )
-}
-
-export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted, notify }) {
+export default function QuoteModal({ inquiryId, inquiryNo, mode = 'detail', onClose, onSubmitted, notify }) {
   const [detail, setDetail] = useState(null)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -104,7 +85,8 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
     load()
   }, [load])
 
-  const canEditExisting = Boolean(detail?.inquiry?.canEditExistingQuotes)
+  // 报价只增不改：mode 只决定文案（去报价 / 报价明细），所有历史行一律只读
+  const canQuote = mode === 'quote'
   const canAppend = Boolean(detail?.inquiry?.canAppendQuotes)
 
   const qualityChoices = useMemo(() => {
@@ -197,7 +179,7 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
     )
   }
 
-  // 「改品质」：按新品质重新提交（老品质行服务端保留，没有删除接口）
+  // 品质档次只在「新增报价（新品质）」产生的草稿行上可切换；已提交的品质行只读
   const changeQuality = (itemIdx, groupIdx, code) => {
     setItems((prev) =>
       prev.map((item, i) =>
@@ -205,24 +187,9 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
           ? item
           : {
               ...item,
-              groups: item.groups.map((group, j) => {
-                if (j !== groupIdx) return group
-                const name = qualityName(code, code)
-                return {
-                  ...group,
-                  qualityCode: code,
-                  qualityName: name,
-                  isNew: true,
-                  offers: group.offers.map((offer) => ({
-                    ...offer,
-                    isNew: true,
-                    quoteLineId: null,
-                    version: null,
-                    original: undefined,
-                    clientLineId: offer.clientLineId || localLineId(),
-                  })),
-                }
-              }),
+              groups: item.groups.map((group, j) =>
+                j === groupIdx ? { ...group, qualityCode: code, qualityName: qualityName(code, code) } : group,
+              ),
             },
       ),
     )
@@ -254,13 +221,6 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
             if (offer.leadTimeDays !== '') line.leadTimeDays = Number(offer.leadTimeDays)
             if (offer.note) line.note = offer.note
             lines.push(line)
-            return
-          }
-          if (isDirty(offer)) {
-            const line = { quoteLineId: offer.quoteLineId, unitPrice: offer.unitPrice.trim(), version: offer.version }
-            if (offer.availableQuantity !== '') line.availableQuantity = Number(offer.availableQuantity)
-            if (offer.leadTimeDays !== '') line.leadTimeDays = Number(offer.leadTimeDays)
-            lines.push(line)
           }
         })
       })
@@ -275,7 +235,7 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
       return
     }
     if (lines.length === 0) {
-      setSubmitError('没有需要提交的改动：请新增报价行，或修改已有行的单价')
+      setSubmitError('没有需要提交的改动：请先新增报价行（同品质 / 新品质）')
       return
     }
     const signature = JSON.stringify(lines)
@@ -302,20 +262,20 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
 
   const inquiry = detail?.inquiry
   const summary = detail?.summary
-  const mainText = canEditExisting ? '保存并提交报价' : '保存新增报价'
-  const showMainButton = canAppend || canEditExisting
+  const mainText = canQuote ? '保存并提交报价' : '保存新增报价'
+  const showMainButton = canAppend
 
   const deadlineText = (() => {
     if (!inquiry) return ''
-    if (canEditExisting) {
+    if (!inquiry.closedReason) {
       const days = remainingDays(inquiry.quoteDeadlineAt)
       const suffix = days === null ? '' : `（剩余 ${days} 天）`
       return `有效至 ${formatDateTime(inquiry.quoteDeadlineAt)}${suffix}`
     }
-    return closedReasonText(inquiry.closedReason || inquiry.status)
+    return closedReasonText(inquiry.closedReason)
   })()
 
-  const title = `${canEditExisting ? '去报价' : '报价明细'} · ${inquiryNo || inquiry?.inquiryNo || ''}`
+  const title = `${canQuote ? '去报价' : '报价明细'} · ${inquiryNo || inquiry?.inquiryNo || ''}`
 
   return (
     <Modal
@@ -326,9 +286,11 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
       footer={
         <div className="quote-foot">
           <span className="quote-foot-hint">
-            {canEditExisting
-              ? '本次修改行与新增行一并提交，提交后买方端立即可见'
-              : '历史报价只读，本次仅提交新增报价行'}
+            {canAppend
+              ? canQuote
+                ? '已报价格不可删除，可继续新增商家或品质报价；本次仅提交新增行'
+                : '历史报价只读，可继续追加新报价；本次仅提交新增行'
+              : '该询价单已撤回，报价明细仅供查看'}
             {summary ? ` · 当前报出率 ${formatQuoteRate(summary.quoteRate)}` : ''}
           </span>
           <div className="quote-foot-actions">
@@ -443,13 +405,11 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
                     return group.offers.map((offer, offerIdx) => {
                       const isItemFirst = groupIdx === 0 && offerIdx === 0
                       const isGroupFirst = offerIdx === 0
-                      const editableExisting = !offer.isNew && canEditExisting && offer.editable
-                      const dirty = isDirty(offer)
                       const source = sourceTypeMeta(offer.sourceType)
                       return (
                         <tr
                           key={offer.key}
-                          className={offer.isNew ? 'row-new' : !offer.editable ? 'row-locked' : ''}
+                          className={offer.isNew ? 'row-new' : 'row-history'}
                           data-testid={offer.isNew ? 'quote-row-new' : 'quote-row-history'}
                         >
                           {isItemFirst ? (
@@ -484,25 +444,6 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
                                     </option>
                                   ))}
                                 </select>
-                              ) : canEditExisting && group.offers.some((row) => row.editable) ? (
-                                <span className="quality-edit">
-                                  <select
-                                    value={group.qualityCode}
-                                    onChange={(event) => changeQuality(itemIdx, groupIdx, event.target.value)}
-                                    title="改品质将按新品质重新提交，原品质报价行保留"
-                                    data-testid="quote-quality-select"
-                                  >
-                                    {qualityChoices.map((option) => (
-                                      <option
-                                        key={option.code}
-                                        value={option.code}
-                                        disabled={usedCodes.has(option.code) && option.code !== group.qualityCode}
-                                      >
-                                        {option.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </span>
                               ) : (
                                 qualityName(group.qualityCode, group.qualityName)
                               )}
@@ -525,45 +466,58 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
                                 ) : (
                                   <span className="offer-supplier-text">{offer.supplierName || '—'}</span>
                                 )}
-                                <span className="price-box">
-                                  <span className="price-symbol">¥</span>
-                                  <input
-                                    className="offer-price"
-                                    placeholder="单价"
-                                    inputMode="decimal"
-                                    value={offer.unitPrice}
-                                    disabled={!offer.isNew && !editableExisting}
-                                    onChange={(event) =>
-                                      updateOffer(itemIdx, groupIdx, offerIdx, { unitPrice: event.target.value })
-                                    }
-                                    data-testid="quote-price-input"
-                                  />
-                                </span>
-                                {dirty ? <Tag tone="orange">已改价</Tag> : null}
+                                {offer.isNew ? (
+                                  <span className="price-box">
+                                    <span className="price-symbol">¥</span>
+                                    <input
+                                      className="offer-price"
+                                      placeholder="单价"
+                                      inputMode="decimal"
+                                      value={offer.unitPrice}
+                                      onChange={(event) =>
+                                        updateOffer(itemIdx, groupIdx, offerIdx, { unitPrice: event.target.value })
+                                      }
+                                      data-testid="quote-price-input"
+                                    />
+                                  </span>
+                                ) : (
+                                  <span className="price-box" data-testid="quote-price-text">
+                                    <span className="price-symbol">¥</span>
+                                    <span className="offer-price-text">{offer.unitPrice || '—'}</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="offer-line offer-extra">
-                                <label>
-                                  可售
-                                  <input
-                                    value={offer.availableQuantity}
-                                    disabled={!offer.isNew && !editableExisting}
-                                    onChange={(event) =>
-                                      updateOffer(itemIdx, groupIdx, offerIdx, { availableQuantity: event.target.value })
-                                    }
-                                  />
-                                </label>
-                                <label>
-                                  货期
-                                  <input
-                                    value={offer.leadTimeDays}
-                                    placeholder="天"
-                                    disabled={!offer.isNew && !editableExisting}
-                                    onChange={(event) =>
-                                      updateOffer(itemIdx, groupIdx, offerIdx, { leadTimeDays: event.target.value })
-                                    }
-                                  />
-                                </label>
-                                {!offer.isNew && !editableExisting ? <em className="locked-hint">已锁定，不可修改</em> : null}
+                                {offer.isNew ? (
+                                  <>
+                                    <label>
+                                      可售
+                                      <input
+                                        value={offer.availableQuantity}
+                                        onChange={(event) =>
+                                          updateOffer(itemIdx, groupIdx, offerIdx, {
+                                            availableQuantity: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      货期
+                                      <input
+                                        value={offer.leadTimeDays}
+                                        placeholder="天"
+                                        onChange={(event) =>
+                                          updateOffer(itemIdx, groupIdx, offerIdx, { leadTimeDays: event.target.value })
+                                        }
+                                      />
+                                    </label>
+                                  </>
+                                ) : (
+                                  <span className="offer-meta" data-testid="quote-price-meta">
+                                    可售 {offer.availableQuantity === '' ? '—' : offer.availableQuantity} · 货期{' '}
+                                    {offer.leadTimeDays === '' ? '—' : `${offer.leadTimeDays} 天`}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>

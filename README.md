@@ -20,6 +20,10 @@ npm run test:e2e   # Playwright，需 hq-seller-service 已在 3001 端口启动
 | 页面 | 接口 |
 | --- | --- |
 | 采购询价（默认页 `#/inquiries`） | `GET /api/supplier/inquiries`、`GET /api/supplier/inquiries/status-options`、`GET /api/supplier/inquiries/{inquiryId}/quotations`、`POST /api/supplier/inquiries/{inquiryId}/quotations:submit`、`POST /api/supplier/inquiries/exports` |
+
+> 采购询价按原型口径是**只增不改**：没有改价 / 覆盖已有报价行的入口，历史报价行在明细里只读展示；
+> `quotations:submit` 只提交本次新增的行（同批不重复），同一「品质 + 商家」重复提交会被服务端拒绝（`40923`）。
+> 已下单 / 已过期的询价单同样只允许追加新报价行。
 | 角色管理（`#/roles`） | `GET /api/roles`、`GET /api/roles/{roleId}`、`GET /api/roles/assignment-targets`、`GET /api/roles/{roleId}/users`、`GET /api/permissions`、`POST /api/roles`、`PATCH /api/roles/{roleId}`、`DELETE /api/roles/{roleId}?version=N` |
 | 订单清单 / 售后处理 / 组织管理 | 本期未实现，仅保留导航占位 |
 
@@ -27,11 +31,11 @@ npm run test:e2e   # Playwright，需 hq-seller-service 已在 3001 端口启动
 
 ## 端到端测试
 
-`npm run test:e2e` 在 `tests/e2e` 下运行 13 条用例，全部直连真实后端（不 mock）：
+`npm run test:e2e` 在 `tests/e2e` 下运行 14 条用例，全部直连真实后端（不 mock）：
 
 | 文件 | 条数 | 覆盖 |
 | --- | --- | --- |
-| `inquiry.spec.js` | 6 | 采购询价清单、状态筛选、报价明细、保存并提交报价（同品质 / 新品质追加） |
+| `inquiry.spec.js` | 7 | 采购询价清单、状态筛选、报价明细、保存并提交报价（同品质 / 新品质追加）、报价只增不改（历史行只读 + 已下单 / 已过期仍可追加） |
 | `role.spec.js` | 4 | 角色列表筛选、新增 / 编辑、启停用、删除、已绑定用户弹窗 |
 | `prototype-parity.spec.js` | 3 | 只读用例（不写业务数据）：对照《03-卖方后台-华汽原型-v09112220.html》核对采购询价 / 报价明细 / 角色管理的表头顺序、固定文案与交互入口 |
 

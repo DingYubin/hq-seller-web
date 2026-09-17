@@ -135,7 +135,10 @@ export default function InquiryPage({ notify, reloadToken }) {
               待报价 {pendingCount}
             </span>
           </h1>
-          <p>询价单由买方发起，按当前渠道范围展示；有效期内可反复改价与追加报价。</p>
+          <p>
+            询价单由买方发起，按当前渠道范围展示；未过期且未下单可「去报价」，已下单 / 已过期可查看报价并继续补充。
+            报价只增不改：已提交的报价行不可修改、不可删除。
+          </p>
         </div>
       </div>
 
@@ -217,9 +220,10 @@ export default function InquiryPage({ notify, reloadToken }) {
                 list.map((row) => {
                   const status = inquiryStatusMeta(row.status)
                   const actions = Array.isArray(row.allowedActions) ? row.allowedActions : []
-                  const canEdit = actions.includes('EDIT_QUOTATIONS')
-                  const canOpen =
-                    canEdit || actions.includes('VIEW_QUOTATIONS') || actions.includes('APPEND_QUOTATION')
+                  const canAppendQuote = actions.includes('APPEND_QUOTATION')
+                  const canOpen = actions.includes('VIEW_QUOTATIONS') || canAppendQuote
+                  // 原型：仅「未过期且未下单」可去报价；已下单 / 已过期进入只读明细，但仍可在弹窗里补充报价
+                  const canQuoteNow = canAppendQuote && row.status !== 'ORDERED' && row.status !== 'EXPIRED'
                   return (
                     <tr key={row.inquiryId} data-testid="inquiry-row">
                       <td className="mono">{row.inquiryNo}</td>
@@ -244,11 +248,17 @@ export default function InquiryPage({ notify, reloadToken }) {
                         {canOpen ? (
                           <button
                             type="button"
-                            className={`btn btn-sm ${canEdit ? 'btn-primary' : 'btn-outline'}`}
-                            onClick={() => setModal({ inquiryId: row.inquiryId, inquiryNo: row.inquiryNo })}
+                            className={`btn btn-sm ${canQuoteNow ? 'btn-primary' : 'btn-outline'}`}
+                            onClick={() =>
+                              setModal({
+                                inquiryId: row.inquiryId,
+                                inquiryNo: row.inquiryNo,
+                                mode: canQuoteNow ? 'quote' : 'detail',
+                              })
+                            }
                             data-testid="inquiry-quote-action"
                           >
-                            {canEdit ? '去报价' : '报价明细'}
+                            {canQuoteNow ? '去报价' : '报价明细'}
                           </button>
                         ) : (
                           '—'
@@ -268,6 +278,7 @@ export default function InquiryPage({ notify, reloadToken }) {
         <QuoteModal
           inquiryId={modal.inquiryId}
           inquiryNo={modal.inquiryNo}
+          mode={modal.mode}
           notify={notify}
           onClose={() => setModal(null)}
           onSubmitted={(data) => {

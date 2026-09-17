@@ -33,40 +33,45 @@ test.describe('原型 UI 一致性', () => {
     // 原型 13 列表头，顺序一致
     await expect(page.getByTestId('inquiry-table').locator('thead th')).toHaveText(INQUIRY_COLUMNS)
 
-    // 原型行操作：可编辑 =「去报价」（主按钮）；只读/可追加 =「报价明细」（描边按钮）；否则「—」
+    // 原型行操作：未过期且未下单 =「去报价」（主按钮）；已下单 / 已过期 =「报价明细」（描边按钮）；否则「—」
     for (const row of data.list.slice(0, 5)) {
       const actions = row.allowedActions || []
-      const canEdit = actions.includes('EDIT_QUOTATIONS')
-      const canOpen = canEdit || actions.includes('VIEW_QUOTATIONS') || actions.includes('APPEND_QUOTATION')
+      const canAppendQuote = actions.includes('APPEND_QUOTATION')
+      const canOpen = actions.includes('VIEW_QUOTATIONS') || canAppendQuote
+      const canQuoteNow = canAppendQuote && !['ORDERED', 'EXPIRED'].includes(row.status)
       const tr = page.getByTestId('inquiry-row').filter({ hasText: row.inquiryNo })
       if (!canOpen) {
         await expect(tr.locator('td').last()).toHaveText('—')
         continue
       }
       const button = tr.getByTestId('inquiry-quote-action')
-      await expect(button).toHaveText(canEdit ? '去报价' : '报价明细')
-      await expect(button).toHaveClass(canEdit ? /btn-primary/ : /btn-outline/)
+      await expect(button).toHaveText(canQuoteNow ? '去报价' : '报价明细')
+      await expect(button).toHaveClass(canQuoteNow ? /btn-primary/ : /btn-outline/)
     }
   })
 
-  test('报价明细：客户车辆信息 / 品质档次 / 追加报价入口 / 无草稿态与原型一致', async ({ page, request }) => {
+  test('报价明细：客户车辆信息 / 品质档次 / 追加报价入口 / 无改价与原型一致', async ({ page, request }) => {
     const list = await apiOk(request, '/api/supplier/inquiries?pageNum=1&pageSize=50')
-    // 优先选「已有多品质报价且仍可改价」的单，保证品质档次下拉有可断言的稳定样本
-    let editable = null
-    for (const row of list.list.filter((item) => (item.allowedActions || []).includes('EDIT_QUOTATIONS'))) {
+    // 原型：未过期且未下单才能进「去报价」；该单必须已有历史报价行，才能核对只读与追加
+    let target = null
+    for (const row of list.list.filter(
+      (row) =>
+        (row.allowedActions || []).includes('APPEND_QUOTATION') && !['ORDERED', 'EXPIRED'].includes(row.status),
+    )) {
       const detail = await apiOk(request, `/api/supplier/inquiries/${row.inquiryId}/quotations`)
-      if (detail.inquiry?.canEditExistingQuotes && (detail.items || []).some((item) => (item.qualities || []).length > 0)) {
-        editable = row
+      expect(detail.inquiry, '报价只增不改：明细响应不再返回可改价标记').not.toHaveProperty('canEditExistingQuotes')
+      if ((detail.items || []).some((item) => (item.qualities || []).length > 0)) {
+        target = row
         break
       }
     }
-    test.skip(!editable, '后端需要至少 1 条已报价且仍可改价的询价单（去报价）')
+    test.skip(!target, '后端需要至少 1 条已报价且仍可「去报价」的询价单')
 
     await openPage(page, 'inquiries')
-    await page.getByTestId('inquiry-row').filter({ hasText: editable.inquiryNo }).getByTestId('inquiry-quote-action').click()
+    await page.getByTestId('inquiry-row').filter({ hasText: target.inquiryNo }).getByTestId('inquiry-quote-action').click()
     const modal = page.getByTestId('quote-modal')
     await expect(modal).toBeVisible()
-    await expect(modal.locator('.modal-head h3')).toHaveText(`去报价 · ${editable.inquiryNo}`)
+    await expect(modal.locator('.modal-head h3')).toHaveText(`去报价 · ${target.inquiryNo}`)
 
     // 原型：客户与车辆信息（保险公司 / 定损人员 / 车型 / VIN / 归属渠道 / 有效期）
     const header = page.getByTestId('quote-modal-header')
@@ -81,10 +86,20 @@ test.describe('原型 UI 一致性', () => {
     await expect(modal.getByTestId('quote-add-new-quality').first()).toBeVisible()
     await expect(modal.getByTestId('quote-add-same-quality').first()).toBeVisible()
 
-    // 原型：品质档次固定 5 档且顺序一致（可编辑行以品质下拉呈现）
+    // 报价只增不改：历史行只读（单价是文本、不是输入框），且没有任何「已改价 / 改品质」入口
+    const historyRow = modal.getByTestId('quote-row-history').first()
+    if ((await historyRow.count()) > 0) {
+      await expect(historyRow.locator('input')).toHaveCount(0)
+      await expect(historyRow.getByTestId('quote-price-text')).toBeVisible()
+    }
+    await expect(modal).not.toContainText('已改价')
+
+    // 品质档次固定 5 档且顺序一致：仅「新增报价（新品质）」产生的行以品质下拉呈现
+    await modal.getByTestId('quote-add-new-quality').first().click()
     await expect(modal.getByTestId('quote-quality-select').first().locator('option')).toHaveText(
       PROTOTYPE_QUALITY_TIERS,
     )
+    await expect(modal.getByTestId('quote-row-new').first().getByTestId('quote-price-input')).toBeVisible()
 
     // 原型：底部只有「取消 / 保存并提交报价」，报价无草稿态
     await expect(modal.getByTestId('quote-submit')).toHaveText('保存并提交报价')

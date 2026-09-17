@@ -290,8 +290,8 @@ input[type="checkbox"], input[type="radio"] { width: auto; }
 .quote-head b { font-size: 13px; font-weight: 600; word-break: break-all; }
 .quote-table td { vertical-align: top; }
 .quote-table .row-new { background: #fff8f1; }
-.quote-table .row-locked { background: #fbfcfd; color: #9aa5b1; }
-.quote-table .row-locked .offer-supplier-text, .quote-table .row-locked .price-box { color: #a3adb9; }
+.quote-table .row-history { background: #fbfcfd; color: #6b7a8d; }
+.quote-table .row-history .offer-supplier-text, .quote-table .row-history .price-box { color: #6b7a8d; }
 .offer-cell { display: flex; flex-direction: column; gap: 7px; min-width: 260px; }
 .offer-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .offer-supplier { width: 152px; height: 30px; padding: 0 8px; font-size: 12px; }
@@ -301,7 +301,8 @@ input[type="checkbox"], input[type="radio"] { width: auto; }
 .offer-price { width: 100px; height: 30px; padding: 0 8px 0 20px; font-size: 12px; }
 .offer-extra label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .offer-extra input { width: 72px; height: 27px; padding: 0 7px; font-size: 12px; }
-.locked-hint { font-style: normal; font-size: 11px; color: #a3adb9; }
+.offer-price-text { padding-left: 2px; font-size: 12px; font-weight: 600; }
+.offer-meta { font-size: 11px; color: var(--muted); }
 .quality-edit select { width: auto; height: 30px; padding: 0 8px; font-size: 12px; }
 .quote-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; }
 .quote-foot-hint { font-size: 12px; color: var(--muted); }
