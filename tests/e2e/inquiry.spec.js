@@ -82,13 +82,19 @@ test.describe('采购询价', () => {
     await expect(page.getByTestId('pending-badge')).toHaveText(`待报价 ${pending.count}`)
   })
 
-  test('打开报价弹窗并追加报价提交成功：只提交新增行，成功后用 summary 就地刷新', async ({ page, request }) => {
+  test('待报价单直接在未报价 SKU 上新增报价：只提交本次新增行，成功后用 summary 就地刷新', async ({ page, request }) => {
     const list = await apiOk(request, '/api/supplier/inquiries?pageNum=1&pageSize=50')
-    const target = list.list.find((row) => (row.allowedActions || []).includes('APPEND_QUOTATION'))
-    test.skip(!target, '后端需要至少 1 条允许追加报价（APPEND_QUOTATION）的询价单')
+    // 待报价单仍有未报价 SKU，报价弹窗必须能直接新增行（原型：报价可反复追加，无草稿态）
+    const target = list.list.find(
+      (row) =>
+        (row.allowedActions || []).includes('APPEND_QUOTATION') && row.quotedSkuCount < row.skuCount,
+    )
+    test.skip(!target, '后端需要至少 1 条允许追加报价、且仍有未报价 SKU 的询价单')
 
     const detail = await apiOk(request, `/api/supplier/inquiries/${target.inquiryId}/quotations`)
     const expectEditable = Boolean(detail.inquiry.canEditExistingQuotes)
+    const emptyItem = (detail.items || []).find((item) => (item.qualities || []).length === 0)
+    expect(emptyItem, '待报价单需要返回未报价的 SKU 行，页面才有新增入口').toBeTruthy()
 
     await openPage(page, 'inquiries')
     const row = page.getByTestId('inquiry-row').filter({ hasText: target.inquiryNo })
@@ -104,8 +110,11 @@ test.describe('采购询价', () => {
       '#', '配件名称', 'OE号', '数量', '品质档次', '金额-供应商', '操作',
     ])
 
-    // 追加一行新报价（同品质）
-    await modal.getByTestId('quote-add-same-quality').first().click()
+    // 未报价 SKU 行必须有「新增报价（新品质）」入口
+    const emptyRow = modal.getByTestId('quote-row-empty').first()
+    await expect(emptyRow).toBeVisible()
+    await emptyRow.getByTestId('quote-add-new-quality').click()
+
     const newRow = modal.getByTestId('quote-row-new').first()
     await expect(newRow).toBeVisible()
     const stamp = Date.now().toString().slice(-8)
@@ -124,7 +133,11 @@ test.describe('采购询价', () => {
     expect(captured.headers()['idempotency-key'], '提交必须带 Idempotency-Key').toBeTruthy()
     const body = captured.postDataJSON()
     expect(body.items).toHaveLength(1)
-    expect(body.items[0]).toMatchObject({ supplierName: supplier, unitPrice: '999.99' })
+    expect(body.items[0]).toMatchObject({
+      supplierName: supplier,
+      unitPrice: '999.99',
+      inquiryItemId: emptyItem.inquiryItemId,
+    })
     expect(body.items[0]).not.toHaveProperty('quoteLineId')
     expect(body.items[0]).not.toHaveProperty('version')
     expect(body.items[0]).not.toHaveProperty('sourceType')
@@ -134,10 +147,11 @@ test.describe('采购询价', () => {
     expect(payload.data.accepted).toHaveLength(1)
     expect(payload.data.accepted[0].quoteLineId).toBeTruthy()
 
-    // 成功后关闭弹窗、提示，并用 summary 就地刷新列表行
+    // 成功后关闭弹窗、提示，并用 summary 就地刷新列表行（新增 1 个 SKU 的报价）
     await expect(modal).toBeHidden()
     await expect(page.getByTestId('toast')).toContainText('报价已保存并提交')
     const summary = payload.data.summary
+    expect(summary.quotedSkuCount, '从待报价变为部分报出').toBe(target.quotedSkuCount + 1)
     await expect(row.locator('td').nth(7)).toHaveText(String(summary.quotedSkuCount))
     await expect(row.getByTestId('quote-rate')).toHaveText(formatRate(summary.quoteRate))
 
@@ -147,6 +161,61 @@ test.describe('采购询价', () => {
       (item.qualities || []).flatMap((quality) => (quality.offers || []).map((offer) => offer.supplierName)),
     )
     expect(suppliers, '提交成功后明细接口应能查到本次新增报价').toContain(supplier)
+  })
+
+  test('同一品质下并列追加多家商家报价：新增报价（同品质）再次提交成功', async ({ page, request }) => {
+    const list = await apiOk(request, '/api/supplier/inquiries?pageNum=1&pageSize=50')
+    const candidates = list.list.filter((row) => (row.allowedActions || []).includes('APPEND_QUOTATION'))
+
+    let target = null
+    let detail = null
+    for (const row of candidates) {
+      const candidate = await apiOk(request, `/api/supplier/inquiries/${row.inquiryId}/quotations`)
+      const hasGroup = (candidate.items || []).some((item) =>
+        (item.qualities || []).some((quality) => (quality.offers || []).length > 0),
+      )
+      if (hasGroup) {
+        target = row
+        detail = candidate
+        break
+      }
+    }
+    test.skip(!target, '后端需要至少 1 条已有品质行的可追加询价单')
+
+    await openPage(page, 'inquiries')
+    await page
+      .getByTestId('inquiry-row')
+      .filter({ hasText: target.inquiryNo })
+      .getByTestId('inquiry-quote-action')
+      .click()
+
+    const modal = page.getByTestId('quote-modal')
+    await expect(modal).toBeVisible()
+    // 已有品质行：同品质按钮必须出现在该品质的第一行
+    await modal.getByTestId('quote-add-same-quality').first().click()
+
+    const newRow = modal.getByTestId('quote-row-new').first()
+    await expect(newRow).toBeVisible()
+    const stamp = Date.now().toString().slice(-8)
+    const supplier = `E2E并列商家${stamp}`
+    await newRow.getByTestId('quote-supplier-input').fill(supplier)
+    await newRow.getByTestId('quote-price-input').fill('1888.00')
+
+    const submitResponse = page.waitForResponse((res) => res.url().includes('/quotations:submit'))
+    await modal.getByTestId('quote-submit').click()
+    const payload = await (await submitResponse).json()
+    expect(payload.code, `提交失败：${JSON.stringify(payload)}`).toBe(0)
+    expect(payload.data.accepted).toHaveLength(1)
+    // 同品质追加不增加已报出的 SKU 数
+    expect(payload.data.summary.quotedSkuCount).toBe(detail.summary.quotedSkuCount)
+    await expect(modal).toBeHidden()
+
+    const after = await apiOk(request, `/api/supplier/inquiries/${target.inquiryId}/quotations`)
+    const group = after.items
+      .flatMap((item) => item.qualities || [])
+      .find((quality) => (quality.offers || []).some((offer) => offer.supplierName === supplier))
+    expect(group, '同品质追加后应能在该品质下查到新商家').toBeTruthy()
+    expect(group.offers.length, '同一品质下应并列多家商家报价').toBeGreaterThan(1)
   })
 
   test('导出：POST 当前筛选到 exports，按 Content-Disposition 下载 Excel', async ({ page, request }) => {

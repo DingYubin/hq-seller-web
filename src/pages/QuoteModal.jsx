@@ -410,8 +410,35 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
                     </td>
                   </tr>
                 ) : null}
-                {items.map((item, itemIdx) =>
-                  item.groups.map((group, groupIdx) => {
+                {items.map((item, itemIdx) => {
+                  // 待报价 / 未报价的 SKU 还没有任何品质行，也必须保留「新增报价（新品质）」入口
+                  if (item.groups.length === 0) {
+                    return (
+                      <tr key={`empty_${item.inquiryItemId}`} data-testid="quote-row-empty">
+                        <td>{itemIdx + 1}</td>
+                        <td>{item.partName}</td>
+                        <td>{item.oeCode || '—'}</td>
+                        <td>{item.quantity}</td>
+                        <td className="muted">未选品质</td>
+                        <td className="muted">尚未报价</td>
+                        <td>
+                          <div className="row-actions">
+                            {canAppend ? (
+                              <button
+                                type="button"
+                                className="link-btn"
+                                onClick={() => addQuality(itemIdx)}
+                                data-testid="quote-add-new-quality"
+                              >
+                                <Plus size={13} /> 新增报价（新品质）
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  }
+                  return item.groups.map((group, groupIdx) => {
                     const usedCodes = new Set(item.groups.map((g) => g.qualityCode))
                     return group.offers.map((offer, offerIdx) => {
                       const isItemFirst = groupIdx === 0 && offerIdx === 0
@@ -577,8 +604,8 @@ export default function QuoteModal({ inquiryId, inquiryNo, onClose, onSubmitted,
                         </tr>
                       )
                     })
-                  }),
-                )}
+                  })
+                })}
               </tbody>
             </table>
           </div>
