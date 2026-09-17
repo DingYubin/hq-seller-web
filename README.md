@@ -27,5 +27,14 @@ npm run test:e2e   # Playwright，需 hq-seller-service 已在 3001 端口启动
 
 ## 端到端测试
 
-`tests/e2e` 下 9 条用例全部直连真实后端（不 mock）。运行前先确保
-`hq-seller-service` 监听 3001 且已 seed 询价单、角色、权限与受限角色数据。
+`npm run test:e2e` 在 `tests/e2e` 下运行 13 条用例，全部直连真实后端（不 mock）：
+
+| 文件 | 条数 | 覆盖 |
+| --- | --- | --- |
+| `inquiry.spec.js` | 6 | 采购询价清单、状态筛选、报价明细、保存并提交报价（同品质 / 新品质追加） |
+| `role.spec.js` | 4 | 角色列表筛选、新增 / 编辑、启停用、删除、已绑定用户弹窗 |
+| `prototype-parity.spec.js` | 3 | 只读用例（不写业务数据）：对照《03-卖方后台-华汽原型-v09112220.html》核对采购询价 / 报价明细 / 角色管理的表头顺序、固定文案与交互入口 |
+
+运行前先确保 `hq-seller-service` 监听 3001 且已 seed 询价单、角色、权限与受限角色数据。
+干净数据推荐在卖方服务仓库执行 `npm run flow:test:fresh`（自带全新内存 Mongo），
+或先 `npm run dev:mongo` 再以 `SEED_BASELINE=true` 启动服务；`inquiry.spec.js` 会写入报价，跑完后如需复用数据请重建 seed。
