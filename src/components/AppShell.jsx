@@ -10,7 +10,7 @@ import {
   TriangleAlert,
   UserRoundCog,
 } from 'lucide-react'
-import { MOCK_USERS, getMockUser, setMockUser } from '../api/client'
+import { api, MOCK_USERS, getMockUser, setMockUser } from '../api/client'
 import InquiryPage from '../pages/InquiryPage'
 import RolePage from '../pages/RolePage'
 import { EmptyState } from './ui'
@@ -57,6 +57,7 @@ export default function AppShell() {
   const [route, setRoute] = useState(() => (typeof window === 'undefined' ? DEFAULT_ROUTE : readRoute()))
   const [mockUserValue, setMockUserValue] = useState(() => getMockUser())
   const [reloadToken, setReloadToken] = useState(0)
+  const [roleAccess, setRoleAccess] = useState('unknown')
   const [toast, setToast] = useState(null)
 
   useEffect(() => {
@@ -91,13 +92,47 @@ export default function AppShell() {
   const onChangeMockUser = (value) => {
     setMockUser(value)
     setMockUserValue(value)
+    setRoleAccess('unknown')
     setReloadToken((token) => token + 1)
     notify(`已切换身份：${MOCK_USERS.find((item) => item.value === value)?.label || value}`)
   }
 
+  const onRoleAccessDenied = useCallback(() => {
+    setRoleAccess('denied')
+    if (route === 'roles') {
+      window.location.hash = '#/inquiries'
+      setRoute('inquiries')
+    }
+  }, [route])
+
+  useEffect(() => {
+    let cancelled = false
+    setRoleAccess('unknown')
+    api
+      .listRoles({ pageNum: 1, pageSize: 1 })
+      .then(() => {
+        if (!cancelled) setRoleAccess('allowed')
+      })
+      .catch((err) => {
+        if (!cancelled && err.code === 40303) setRoleAccess('denied')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [mockUserValue])
+
+  useEffect(() => {
+    if (roleAccess === 'denied' && route === 'roles') onRoleAccessDenied()
+  }, [onRoleAccessDenied, roleAccess, route])
+
+  const visibleNavItems = useMemo(
+    () => (roleAccess === 'denied' ? NAV_ITEMS.filter((item) => item.key !== 'roles') : NAV_ITEMS),
+    [roleAccess],
+  )
+
   const activeItem = useMemo(
-    () => NAV_ITEMS.find((item) => item.key === route) || NAV_ITEMS[0],
-    [route],
+    () => visibleNavItems.find((item) => item.key === route) || visibleNavItems[0],
+    [route, visibleNavItems],
   )
 
   return (
@@ -150,7 +185,7 @@ export default function AppShell() {
         <aside className="sidebar">
           <div className="sidebar-top">卖方后台菜单</div>
           <nav>
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon
               return (
                 <button
@@ -180,7 +215,9 @@ export default function AppShell() {
           {activeItem.key === 'inquiries' ? (
             <InquiryPage notify={notify} reloadToken={reloadToken} />
           ) : null}
-          {activeItem.key === 'roles' ? <RolePage notify={notify} reloadToken={reloadToken} /> : null}
+          {activeItem.key === 'roles' ? (
+            <RolePage notify={notify} reloadToken={reloadToken} onAccessDenied={onRoleAccessDenied} />
+          ) : null}
           {!activeItem.implemented ? <PlaceholderPage item={activeItem} /> : null}
         </main>
       </div>

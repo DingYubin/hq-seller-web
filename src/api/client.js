@@ -8,6 +8,7 @@ const MOCK_USER_KEY = 'hq-seller.mock-user'
 export const MOCK_USERS = [
   { value: 'hq-admin', label: '华汽总部管理员' },
   { value: 'channel-quoter', label: '渠道报价员' },
+  { value: 'mock-seller-customer', label: '客户账号（无角色管理权限）' },
 ]
 
 function readStoredMockUser() {

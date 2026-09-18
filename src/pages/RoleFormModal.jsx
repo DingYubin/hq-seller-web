@@ -88,6 +88,26 @@ export default function RoleFormModal({ mode, roleId, onClose, onSaved, notify }
     }
   }, [isEdit, roleId, loadTargets])
 
+  const refreshAfterVersionConflict = useCallback(async () => {
+    const [latestDetail, permissionList] = await Promise.all([
+      api.roleDetail(roleId),
+      loadAllPermissions(),
+    ])
+    setDetail(latestDetail)
+    setPermissions(permissionList)
+    if (latestDetail.scopeMode === 'CUSTOM') {
+      const targetData = await api.assignmentTargets({
+        subjectType: latestDetail.subjectType,
+        pageNum: 1,
+        pageSize: 100,
+      })
+      setTargets(Array.isArray(targetData?.list) ? targetData.list : [])
+    } else {
+      setTargets([])
+    }
+    setError('角色已被其他人更新，已刷新最新版本和权限；当前输入已保留，请再次保存')
+  }, [roleId])
+
   useEffect(() => {
     load()
   }, [load])
@@ -172,7 +192,16 @@ export default function RoleFormModal({ mode, roleId, onClose, onSaved, notify }
       const updated = await api.updateRole(roleId, patch, newIdempotencyKey())
       onSaved?.(updated, 'edit')
     } catch (err) {
-      setError(err.message || '角色保存失败')
+      if (isEdit && err.code === 40911) {
+        try {
+          await refreshAfterVersionConflict()
+          notify?.('角色已被其他人更新，已刷新最新版本和权限；当前输入已保留，请再次保存', 'error')
+        } catch (refreshError) {
+          setError(refreshError.message || '角色版本已冲突，刷新最新数据失败，请重试')
+        }
+      } else {
+        setError(err.message || '角色保存失败')
+      }
     } finally {
       setSaving(false)
     }

@@ -14,7 +14,8 @@ export default function RoleUsersModal({ role, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const debounceRef = useRef(null)
+  const organizationDebounceRef = useRef(null)
+  const userDebounceRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -39,7 +40,7 @@ export default function RoleUsersModal({ role, onClose }) {
     load()
   }, [load])
 
-  const scheduleFilters = (patch) => {
+  const scheduleFilters = (patch, debounceRef) => {
     window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
       setPageNum(1)
@@ -47,7 +48,13 @@ export default function RoleUsersModal({ role, onClose }) {
     }, 300)
   }
 
-  useEffect(() => () => window.clearTimeout(debounceRef.current), [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(organizationDebounceRef.current)
+      window.clearTimeout(userDebounceRef.current)
+    },
+    [],
+  )
 
   const roleName = data?.roleName || role.name
   const roleCode = data?.roleCode || role.code
@@ -72,7 +79,7 @@ export default function RoleUsersModal({ role, onClose }) {
             value={orgInput}
             onChange={(event) => {
               setOrgInput(event.target.value)
-              scheduleFilters({ organizationKeyword: event.target.value.trim() })
+              scheduleFilters({ organizationKeyword: event.target.value.trim() }, organizationDebounceRef)
             }}
             data-testid="role-users-org-filter"
           />
@@ -84,7 +91,7 @@ export default function RoleUsersModal({ role, onClose }) {
             value={userInput}
             onChange={(event) => {
               setUserInput(event.target.value)
-              scheduleFilters({ userKeyword: event.target.value.trim() })
+              scheduleFilters({ userKeyword: event.target.value.trim() }, userDebounceRef)
             }}
             data-testid="role-users-user-filter"
           />

@@ -8,7 +8,7 @@ import RoleUsersModal from './RoleUsersModal'
 
 const PAGE_SIZE = 20
 
-export default function RolePage({ notify, reloadToken }) {
+export default function RolePage({ notify, reloadToken, onAccessDenied }) {
   const [keywordInput, setKeywordInput] = useState('')
   const [filters, setFilters] = useState({ subjectType: '', subjectId: '', status: '', keyword: '' })
   const [pageNum, setPageNum] = useState(1)
@@ -38,23 +38,31 @@ export default function RolePage({ notify, reloadToken }) {
       setList(Array.isArray(data?.list) ? data.list : [])
       setTotal(Number(data?.total) || 0)
     } catch (err) {
+      if (err.code === 40303) {
+        onAccessDenied?.()
+        return
+      }
       setError(err.message || '角色列表加载失败')
       setList([])
       setTotal(0)
     } finally {
       setLoading(false)
     }
-  }, [filters, pageNum])
+  }, [filters, pageNum, onAccessDenied])
 
   const loadTargets = useCallback(async () => {
     try {
       // 工具栏不传 subjectType = 总部 → 渠道 → 客户三级合并
       const data = await api.assignmentTargets({ pageNum: 1, pageSize: 100 })
       setTargets(Array.isArray(data?.list) ? data.list : [])
-    } catch {
+    } catch (err) {
+      if (err.code === 40303) {
+        onAccessDenied?.()
+        return
+      }
       setTargets([])
     }
-  }, [])
+  }, [onAccessDenied])
 
   useEffect(() => {
     loadList()
